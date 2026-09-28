@@ -9,11 +9,14 @@ import type {
   UIElement,
   Spec,
   ActionBinding,
+  DirectiveDefinition,
+  DirectiveRegistry,
   Catalog,
   SchemaDefinition,
   StateStore,
 } from "@json-render/core";
 import {
+  createDirectiveRegistry,
   resolveElementProps,
   resolveBindings,
   resolveActionParam,
@@ -59,6 +62,18 @@ export interface RendererProps {
   includeStandard?: boolean;
   loading?: boolean;
   fallback?: ComponentRenderer;
+}
+
+// =============================================================================
+// DirectivesContext
+// =============================================================================
+
+const DirectivesContext = React.createContext<DirectiveRegistry | undefined>(
+  undefined,
+);
+
+function useDirectives(): DirectiveRegistry | undefined {
+  return React.useContext(DirectivesContext);
 }
 
 // =============================================================================
@@ -126,19 +141,20 @@ const ElementRenderer = React.memo(function ElementRenderer({
   const { ctx } = useVisibility();
   const { execute } = useActions();
   const { getSnapshot } = useStateStore();
+  const directives = useDirectives();
 
-  const fullCtx: PropResolutionContext = useMemo(
-    () =>
-      repeatScope
-        ? {
-            ...ctx,
-            repeatItem: repeatScope.item,
-            repeatIndex: repeatScope.index,
-            repeatBasePath: repeatScope.basePath,
-          }
-        : ctx,
-    [ctx, repeatScope],
-  );
+  const fullCtx: PropResolutionContext = useMemo(() => {
+    const base: PropResolutionContext = repeatScope
+      ? {
+          ...ctx,
+          repeatItem: repeatScope.item,
+          repeatIndex: repeatScope.index,
+          repeatBasePath: repeatScope.basePath,
+        }
+      : { ...ctx };
+    base.directives = directives;
+    return base;
+  }, [ctx, repeatScope, directives]);
 
   const isVisible =
     element.visible === undefined
@@ -374,6 +390,8 @@ export interface JSONUIProviderProps {
     string,
     (value: unknown, args?: Record<string, unknown>) => boolean
   >;
+  /** Custom directives for user-defined `$`-prefixed dynamic values */
+  directives?: DirectiveDefinition[];
   onStateChange?: (changes: Array<{ path: string; value: unknown }>) => void;
   children: ReactNode;
 }
@@ -384,9 +402,14 @@ export function JSONUIProvider({
   handlers,
   navigate,
   validationFunctions,
+  directives,
   onStateChange,
   children,
 }: JSONUIProviderProps) {
+  const directiveRegistry = useMemo(
+    () => (directives ? createDirectiveRegistry(directives) : undefined),
+    [directives],
+  );
   return (
     <StateProvider
       store={store}
@@ -396,7 +419,9 @@ export function JSONUIProvider({
       <VisibilityProvider>
         <ActionProvider handlers={handlers} navigate={navigate}>
           <ValidationProvider customFunctions={validationFunctions}>
-            {children}
+            <DirectivesContext.Provider value={directiveRegistry}>
+              {children}
+            </DirectivesContext.Provider>
           </ValidationProvider>
         </ActionProvider>
       </VisibilityProvider>
@@ -460,6 +485,8 @@ export interface CreateRendererProps {
   state?: Record<string, unknown>;
   onAction?: (actionName: string, params?: Record<string, unknown>) => void;
   onStateChange?: (changes: Array<{ path: string; value: unknown }>) => void;
+  /** Custom directives for user-defined `$`-prefixed dynamic values */
+  directives?: DirectiveDefinition[];
   loading?: boolean;
   fallback?: ComponentRenderer;
 }
@@ -492,9 +519,14 @@ export function createRenderer<
     state,
     onAction,
     onStateChange,
+    directives,
     loading,
     fallback,
   }: CreateRendererProps) {
+    const directiveRegistry = useMemo(
+      () => (directives ? createDirectiveRegistry(directives) : undefined),
+      [directives],
+    );
     const actionHandlers = onAction
       ? new Proxy(
           {} as Record<
@@ -520,12 +552,14 @@ export function createRenderer<
         <VisibilityProvider>
           <ActionProvider handlers={actionHandlers}>
             <ValidationProvider>
-              <Renderer
-                spec={spec}
-                registry={registry}
-                loading={loading}
-                fallback={fallback}
-              />
+              <DirectivesContext.Provider value={directiveRegistry}>
+                <Renderer
+                  spec={spec}
+                  registry={registry}
+                  loading={loading}
+                  fallback={fallback}
+                />
+              </DirectivesContext.Provider>
             </ValidationProvider>
           </ActionProvider>
         </VisibilityProvider>

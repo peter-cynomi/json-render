@@ -4,8 +4,14 @@ import {
   renderToStream as pdfRenderToStream,
   render as pdfRender,
 } from "@react-pdf/renderer";
-import type { Spec, UIElement } from "@json-render/core";
+import type {
+  DirectiveDefinition,
+  DirectiveRegistry,
+  Spec,
+  UIElement,
+} from "@json-render/core";
 import {
+  createDirectiveRegistry,
   resolveElementProps,
   resolveRepeatItemStatePath,
   resolveRepeatStatePath,
@@ -24,6 +30,8 @@ export interface RenderOptions {
   registry?: RenderComponentRegistry;
   includeStandard?: boolean;
   state?: Record<string, unknown>;
+  /** Custom directives for user-defined `$`-prefixed dynamic values */
+  directives?: DirectiveDefinition[];
 }
 
 const noopEmit = () => {};
@@ -33,6 +41,7 @@ function renderElement(
   spec: Spec,
   registry: RenderComponentRegistry,
   stateModel: Record<string, unknown>,
+  directives: DirectiveRegistry | undefined,
   repeatItem?: unknown,
   repeatIndex?: number,
   repeatBasePath?: string,
@@ -45,6 +54,7 @@ function renderElement(
     repeatItem,
     repeatIndex,
     repeatBasePath,
+    directives,
   };
 
   if (element.visible !== undefined) {
@@ -88,6 +98,7 @@ function renderElement(
           spec,
           registry,
           stateModel,
+          directives,
           item,
           index,
           childPath,
@@ -110,6 +121,7 @@ function renderElement(
       spec,
       registry,
       stateModel,
+      directives,
       repeatItem,
       repeatIndex,
       repeatBasePath,
@@ -131,6 +143,7 @@ function buildDocument(
     registry: customRegistry,
     includeStandard = true,
     state = {},
+    directives,
   } = options;
 
   const mergedState: Record<string, unknown> = {
@@ -143,7 +156,17 @@ function buildDocument(
     ...customRegistry,
   };
 
-  const root = renderElement(spec.root, spec, registry, mergedState);
+  const directiveRegistry = directives
+    ? createDirectiveRegistry(directives)
+    : undefined;
+
+  const root = renderElement(
+    spec.root,
+    spec,
+    registry,
+    mergedState,
+    directiveRegistry,
+  );
   return root ?? <></>;
 }
 
